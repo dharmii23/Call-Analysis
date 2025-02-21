@@ -26,12 +26,12 @@ def analyze_transcript():
 
     for file_key in s3_files:
         call_id = file_key.replace(".txt", "")  # Extract call ID from filename
-        print(f"🔍 Processing: {file_key}")
+        print(f"Processing: {file_key}")
 
         transcript_text = fetch_transcript_from_s3(TRANSCRIPTS_BUCKET, file_key)
 
         if not transcript_text:
-            print(f"❌ No transcript found for {file_key}")
+            print(f" No transcript found for {file_key}")
             continue
 
         # Generate analysis using GPT
@@ -47,4 +47,4 @@ def analyze_transcript():
         analysis_file_key = f"{call_id}_analysis.txt"
         upload_to_s3(analysis_text.encode("utf-8"), ANALYSIS_BUCKET, analysis_file_key)
 
-        print(f"✅ Analysis saved: s3://{ANALYSIS_BUCKET}/{analysis_file_key}")
+        print(f"Analysis saved: s3://{ANALYSIS_BUCKET}/{analysis_file_key}")
