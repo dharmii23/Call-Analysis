@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
-from tasks.fetch_audio import fetch_audio_from_kaleyra
+from tasks.fetch_audio import fetch_audio_from_kaleyra_and_upload
 from tasks.transcribe_audio import transcribe_audio_with_aws
 from tasks.analyze_transcript import analyze_transcript
 
@@ -26,7 +26,7 @@ with DAG(
     
     fetch_audio_task = PythonOperator(
         task_id='fetch_audio',
-        python_callable=fetch_audio_from_kaleyra
+        python_callable=fetch_audio_from_kaleyra_and_upload
     )
 
     transcribe_audio_task = PythonOperator(
