@@ -105,6 +105,6 @@ def fetch_audio_from_kaleyra_and_upload():
 
 
 if __name__ == "__main__":
-    pass
+    #pass
 
-    # fetch_audio_from_kaleyra_and_upload()
+    fetch_audio_from_kaleyra_and_upload()
