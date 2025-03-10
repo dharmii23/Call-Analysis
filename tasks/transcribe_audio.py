@@ -2,11 +2,11 @@ import boto3
 import os
 import json
 import time
+import requests
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
-import pytz
 
-# Load environment variables
+# Load environment variablesa
 load_dotenv()
 
 # AWS Config
@@ -24,37 +24,62 @@ def start_and_end_date():
     return {'from_date': from_date, 'to_date': to_date}
 
 def transcribe_audio_with_aws(audio_s3_uri, job_name):
-    """ Starts AWS Transcribe job and waits for completion """
+    """Starts AWS Transcribe job with speaker identification and waits for completion."""
     try:
+        date = start_and_end_date()
+        
+        # Start Transcription with Speaker Labels
         transcribe_client.start_transcription_job(
             TranscriptionJobName=job_name,
             Media={"MediaFileUri": audio_s3_uri},
             MediaFormat="mp3",
             LanguageCode="en-US",
-            OutputBucketName=BUCKET_NAME  # AWS Transcribe saves results here
+            OutputBucketName=BUCKET_NAME,
+            OutputKey=f"{TRANSCRIPTS_FOLDER}/{date['from_date']}-{date['to_date']}/{job_name}.json",
+            Settings={
+                "ShowSpeakerLabels": True,   # Enable Speaker Labeling
+                "MaxSpeakerLabels": 2,       # Maximum 2 speakers
+                "ChannelIdentification": False  # Important: Set to False
+            }
         )
 
         while True:
             status = transcribe_client.get_transcription_job(TranscriptionJobName=job_name)
-            if status["TranscriptionJob"]["TranscriptionJobStatus"] in ["COMPLETED", "FAILED"]:
+            job_status = status["TranscriptionJob"]["TranscriptionJobStatus"]
+
+            if job_status in ["COMPLETED", "FAILED"]:
                 break
-            print("Waiting for transcription...")
+            
+            print(f"Waiting for transcription... (Status: {job_status})")
             time.sleep(5)
 
-        if status["TranscriptionJob"]["TranscriptionJobStatus"] == "COMPLETED":
-            transcript_url = status["TranscriptionJob"]["Transcript"]["TranscriptFileUri"]
-            return requests.get(transcript_url).json()
+        if job_status == "FAILED":
+            print(f"Transcription job {job_name} failed: {status['TranscriptionJob']['FailureReason']}")
+            return None
 
-    except boto3.exceptions.Boto3Error as e:
+        transcript_url = status["TranscriptionJob"]["Transcript"]["TranscriptFileUri"]
+
+        if not transcript_url:
+            print(f"Error: Transcription job {job_name} has no transcript URL.")
+            return None
+
+        response = requests.get(transcript_url)
+        if response.status_code != 200:
+            print(f"Error fetching transcript from {transcript_url}, HTTP Status: {response.status_code}")
+            return None
+        
+        return response.json()
+
+    except Exception as e:
         print(f"Error in AWS Transcribe: {e}")
     
     return None
 
 def process_audio_files():
-    """ Processes audio files and saves transcriptions in a structured folder. """
+    """ Processes audio files and saves transcriptions in a structured folder with date-based naming. """
     from_and_to_date = start_and_end_date()
-    date_folder = f"{from_and_to_date['from_date']}_To_{from_and_to_date['to_date']}"
-    audio_prefix = f"kaleyra_report/call_recordings/{date_folder}/"
+    date_folder = f"transcribe_{from_and_to_date['from_date']}-{from_and_to_date['to_date']}"
+    audio_prefix = f"kaleyra_report/call_recordings/{from_and_to_date['from_date']}_To_{from_and_to_date['to_date']}/"
     transcript_prefix = f"{TRANSCRIPTS_FOLDER}/{date_folder}/"
 
     response = s3_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=audio_prefix)
@@ -69,7 +94,11 @@ def process_audio_files():
         print(f"Processing: {audio_s3_key} (ID: {unique_id})")
         audio_s3_uri = f"s3://{BUCKET_NAME}/{audio_s3_key}"
 
-        transcription_data = transcribe_audio_with_aws(audio_s3_uri, f"transcription-{unique_id}")
+        # Ensure unique job name by appending a timestamp
+        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        job_name = f"transcription-{unique_id}-{timestamp}"
+
+        transcription_data = transcribe_audio_with_aws(audio_s3_uri, job_name)
 
         if transcription_data:
             transcript_s3_key = f"{transcript_prefix}{unique_id}.json"
