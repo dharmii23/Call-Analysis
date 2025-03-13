@@ -7,9 +7,10 @@ from dotenv import load_dotenv
 from langchain_core.prompts import PromptTemplate
 from datetime import datetime, timedelta
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
+
 
 # Load environment variables
 load_dotenv()
@@ -19,25 +20,28 @@ AWS_REGION = "ap-south-1"
 BUCKET_NAME = os.getenv("BUCKET_NAME")
 TRANSCRIPTS_FOLDER = "kaleyra_report/transcriptions"
 
-# ✅ Function to get date range
+# Function to get date range
 def start_and_end_date():
     from_date = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
     to_date = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
     return {'from_date': from_date, 'to_date': to_date}
 
+
 # ✅ Function to extract only dialogues from JSON
 def extract_dialogues_only(transcript_data):
+    """Extracts speaker dialogues in 'Speaker: Dialogue' format."""
     results = transcript_data.get("results", {})
     audio_segments = results.get("audio_segments", [])
 
     if not audio_segments:
+        print("Warning: No dialogues found, returning empty transcript.")
         return "No transcript available."
 
     dialogues = []
     for segment in audio_segments:
         speaker = segment.get("speaker_label", "Unknown Speaker")
         text = segment.get("transcript", "").strip()
-        if text:
+        if text:  # Ignore empty segments
             dialogues.append(f"{speaker}: {text}")
 
     return "\n".join(dialogues)
@@ -52,23 +56,13 @@ def trim_transcript(text, max_words=5000):
     return text
 
 
-
-
-
-
-# ✅ Function to save PDF
+# ✅ Function to save analysis as a PDF
 def save_as_pdf(content, filename):
     doc = SimpleDocTemplate(filename, pagesize=letter, leftMargin=72, rightMargin=72, topMargin=72, bottomMargin=72)
     styles = getSampleStyleSheet()
     elements = []
 
-    # Loop through all sections in content to add them to the PDF
     for section in content:
-    # ✅ Skip sections without a "title" key
-        if "title" not in section:
-            print(f"Skipping section without title: {section}")  # Debugging step
-            continue
-
         elements.append(Paragraph(section["title"], styles["Heading2"]))
         elements.append(Spacer(1, 12))
 
@@ -76,58 +70,17 @@ def save_as_pdf(content, filename):
             elements.append(Paragraph(section["text"].replace("\n", "<br/>"), styles["BodyText"]))
             elements.append(PageBreak())
 
-        elif section.get("text"):
-            elements.append(Paragraph(section["text"], styles["BodyText"]))
-            elements.append(Spacer(1, 20))
-
-        elif section.get("tables"):
-            for table_data in section["tables"]:
-                formatted_table_data = [[Paragraph(str(cell), styles["BodyText"]) for cell in row] for row in table_data]
-                table = Table(formatted_table_data)
-                table.setStyle(TableStyle([
-                ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ]))
-
-            elements.append(table)
-            elements.append(Spacer(1, 20))
+        else:
+            if "tables" in section:
+                for table_data in section["tables"]:
+                    formatted_table_data = [[Paragraph(str(cell), styles["BodyText"]) for cell in row] for row in table_data]
+                    table = Table(formatted_table_data)
+                    table.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 1, colors.black)]))
+                    elements.append(table)
+                    elements.append(Spacer(1, 20))
 
     doc.build(elements)
 
-
-
-# ✅ Function to generate weekly content
-def generate_weekly_content(transcripts, date_range):
-    weekly_data = {
-        "total_calls": len(transcripts),
-        "from_date": date_range['from_date'],
-        "to_date": date_range['to_date']
-    }
-
-    # Calculate average sentiment and call handling time from transcripts here
-    # (You can define your logic for these metrics)
-
-    # Create the prompt for GPT to generate the weekly summary
-    weekly_summary_prompt = f"""
-Summarize the overall customer service performance for the week based on the following data:
-
-- Describe customer sentiment trends (positive, neutral, or negative) and provide reasons.
-- Highlight common complaints from customers.
-- Evaluate agent performance and suggest improvements.
-
-**Write a professional, detailed summary in paragraph form. Do not return structured JSON.**
-"""
-
-    # Ask GPT to generate the weekly summary paragraph
-    weekly_summary_response = llm.invoke(weekly_summary_prompt)
-    weekly_summary_paragraph = weekly_summary_response.content.strip()
-    print(weekly_summary_response)
-    return weekly_summary_paragraph, weekly_data
 
 # ✅ AWS S3 Client
 s3_client = boto3.client("s3", region_name=AWS_REGION)
@@ -157,18 +110,27 @@ format_instructions = output_parser.get_format_instructions()
 call_analysis_prompt = PromptTemplate(
     template="""
     You are an AI call analyst. Analyze the following customer service call transcript 
-    and generate structured reports.
+    and generate structured reports. Also generate a structured Weekly Call Performance Summary.
 
     *Transcript:*  
     {transcript}
 
     *Metrics & Analysis:*  
     {format_instructions}
+
+     *Weekly Call Reports:*  
+    {transcripts}
+
+    *Weekly Summary:*  
+    - Total number of calls analyzed  
+    - Overall sentiment distribution (positive, neutral, negative)  
+    - Most common complaints and their frequency  
+    - Key customer pain points  
+    - Any patterns or trends observed in customer interactions  
     """,
     input_variables=["transcript"],
     partial_variables={"format_instructions": format_instructions},
 )
-
 
 
 # ✅ Fetch transcripts from S3
@@ -191,12 +153,14 @@ def fetch_transcripts():
 
         try:
             transcript_data = json.loads(file_content)
-            dialogues = extract_dialogues_only(transcript_data)
+            dialogues = extract_dialogues_only(transcript_data)  # Extract cleaned dialogues
             transcript_texts[file_key] = dialogues
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            print(f"Error parsing {file_key}: {e}")
             continue
 
     return transcript_texts
+
 
 # ✅ Analyze and store results
 def analyze_and_store():
@@ -205,50 +169,26 @@ def analyze_and_store():
         print("No transcripts found.")
         return
 
-    date_range = start_and_end_date()  # Get the date range
-    analysis_filename = f"kaleyra_report/analysis_files/{date_range['from_date']}-{date_range['to_date']}.pdf"
+    date = start_and_end_date()
+    analysis_filename = f"kaleyra_report/analysis_files/{date['from_date']}-{date['to_date']}.pdf"
     s3_analysis_path = f"keywords-bucket/{analysis_filename}"
 
     content = []
-
-    # Add weekly analysis content with dates
-    weekly_summary_paragraph, weekly_content = generate_weekly_content(transcripts, date_range)
-    # print("Content1:", weekly_summary_paragraph)
-    # print("Contnent2:", weekly_content)
-
-    print(f"Weekly Summary Paragraph: {weekly_summary_paragraph}")
-
-    content.append({
-    "title": f"Weekly Summary ({weekly_content['from_date']} to {weekly_content['to_date']})",
-})
-
-
-    content.append({
-    "title": "Summary of the Week",
-    "text": weekly_summary_paragraph
-})
-    
-    content.append({
-    "tables": [[
-        ["Metric", "Value"],
-        ["Total Calls", weekly_content["total_calls"]],
-    ]]
-})
-
-    # Add weekly metrics table
-    # Add weekly summary at the beginning of the PDF
-
-# ✅ Add the weekly summary paragraph right after the table
-
-
+    weekly_summary_data=[]
 
     for file_key, transcript_text in transcripts.items():
         print(f"Processing: {file_key}")
 
         trimmed_transcript = trim_transcript(transcript_text)  # Trim if too long
         response = llm.invoke(call_analysis_prompt.format(transcript=trimmed_transcript))
-        # print(response.content)
         structured_response = output_parser.parse(response.content)
+
+        weekly_summary_data.append({
+            "transcript_id": file_key,
+            "sentiment": structured_response.get("customer_sentiment", "Neutral"),
+            "top_complaints": structured_response.get("top_complaints", [])
+        })
+
 
         # ✅ Add cleaned transcript
         content.append({
@@ -256,33 +196,53 @@ def analyze_and_store():
             "text": trimmed_transcript
         })
 
-        # ✅ Add agent performance metrics
+        # ✅ Add performance metrics
         content.append({
             "title": "Agent Performance Metrics",
-            "tables": [[
-                ["Metric", "Value"],
-                ["Productivity", structured_response.get("productivity", "N/A")],
-                ["Quality & Experience", structured_response.get("quality_experience", "N/A")],
-                ["Compliance", structured_response.get("compliance", "N/A")],
-                ["Call Handling", structured_response.get("call_handling", "N/A")]
-            ]]
+            "tables": [[["Metric", "Value"],
+                        ["Productivity", structured_response.get("productivity", "N/A")],
+                        ["Quality & Experience", structured_response.get("quality_experience", "N/A")],
+                        ["Compliance", structured_response.get("compliance", "N/A")],
+                        ["Call Handling", structured_response.get("call_handling", "N/A")]]]
         })
 
-        # ✅ Add customer sentiment analysis metrics
+        # ✅ Add sentiment analysis metrics
         content.append({
             "title": "Customer Sentiment Analysis Metrics",
-            "tables": [[
-                ["Metric", "Value"],
-                ["Overall Sentiment Score", structured_response.get("customer_sentiment", "N/A")],
-                ["Emotion Detection", structured_response.get("emotion_detection", "N/A")],
-                ["Sentiment Shift", structured_response.get("sentiment_shift", "N/A")],
-                ["Escalation Risk", structured_response.get("escalation_risk", "N/A")]
-            ]]
+            "tables": [[["Metric", "Value"],
+                        ["Overall Sentiment Score", structured_response.get("customer_sentiment", "N/A")],
+                        ["Emotion Detection", structured_response.get("emotion_detection", "N/A")],
+                        ["Sentiment Shift", structured_response.get("sentiment_shift", "N/A")],
+                        ["Escalation Risk", structured_response.get("escalation_risk", "N/A")]]]
         })
 
-    # Save the PDF and upload to S3
+         # ✅ Generate Weekly Summary Using GPT
+    print("🔍 DEBUG: Transcript before GPT call:")
+    print(weekly_summary_data)
+
+    if weekly_summary_data:  # ✅ Only run GPT if data exists
+        weekly_summary_prompt = f"""
+    Given the following analyzed call data, summarize the overall call performance for the week:
+
+    {json.dumps(weekly_summary_data, indent=2)}
+
+    Provide a concise paragraph about the trends in customer sentiment, common issues, and overall agent performance.
+    """
+        weekly_summary_response = llm.invoke(weekly_summary_prompt).content
+        print("DEBUG: Weekly Summary Before Report Generation:", weekly_summary_response)
+
+        content.append({"title": "📌 Weekly Call Performance Summary", "text": weekly_summary_response})
+    else:
+        print("⚠️ Warning: No data found for Weekly Performance Summary. Skipping GPT call.")
+
+
+    # ✅ Add GPT-generated final summary to the PDF
+    content.append({"title": "📌 Weekly Call Performance Summary", "text": weekly_summary_response})
+
     save_as_pdf(content, "analysis_results.pdf")
     s3_client.upload_file("analysis_results.pdf", "keywords-bucket", analysis_filename)
     print(f"Successfully uploaded analysis to S3: s3://{s3_analysis_path}")
+
+
 if __name__ == "__main__":
     analyze_and_store()
