@@ -1,0 +1,106 @@
+==============================
+        File: kaleyra_report/transcriptions/2025-03-03-2025-03-09/transcription-67cbb33d-d9bc-4340-ac77-43b7ac110ff7-20250310182632.json
+        ==============================
+        Transcript:
+        spk_0: Thank you for calling . This is Akila . How can I help you ? Yes , ahaan . I can speak
+spk_1: in
+spk_0: English .
+spk_1: Madam the caretaker all madam for 3 to 5 days .
+spk_0: OK , 3 to 5 days . OK then , ma'am , provide and at least ma'am , 7 days you provide this um .
+spk_1: 7 days 24 hours by 7 , 24
+spk_0: by 7 . 1300 per day on the location of the Kale .
+spk_1: Hyderabad Sura Malaredi Hospital .
+spk_0: OK . Hospital Mco Hospital at the pricing 1500 per day .
+spk_1: Uh and then uh
+spk_0: Sorry .
+spk_1: 1500 madam I can talk for 3 to 5 days mameawali to buy personal I feel loan . OK
+spk_0: and um guarantee you check this one at least my uh one week because some provide this number we do pricing OK until I check and and check this on 1500
+spk_1: per day . 1000
+spk_0: rupees .
+spk_1: OK .
+        
+        Analysis:
+        --------------------------------
+        Call Type: Booking and Pricing Inquiry
+        Sentiment: Neutral
+        Detected Emotions: Calmness
+        Sentiment Shifts: Consistently Neutral
+        Speech-to-Silence Ratio: High speech-to-silence ratio indicating continuous engagement from both parties.
+        Interruption Rate: Minimal interruptions observed from either the agent or customer.
+        Hold Time Analysis: No significant hold time was detected during the call.
+        Customer Effort Score: Customer effort score cannot be determined accurately due to limited context.
+        Compliance Adherence: The agent appeared to adhere to the script by providing pricing details and probing for further information.
+        Resolution Status: The call did not involve a specific issue resolution, but rather a pricing and service inquiry.
+        Detected Issue: The customer inquired about caretaker availability, pricing, and locations.
+        --------------------------------
+
+==============================
+        File: kaleyra_report/transcriptions/2025-03-03-2025-03-09/transcription-67cbb34a-9254-4abb-a177-4501ac110ff7-20250310182721.json
+        ==============================
+        Transcript:
+        spk_0: Thank you for calling . This is Akila . How can I help you ? Yes , ahaan . I can speak
+spk_1: in
+spk_0: English .
+spk_1: Madam the caretaker all madam for 3 to 5 days .
+spk_0: OK , 3 to 5 days . OK then , ma'am , provide and at least ma'am , 7 days you provide this um .
+spk_1: 7 days 24 hours by 7 , 24
+spk_0: by 7 . 1300 per day on the location of the Kale .
+spk_1: Hyderabad Sura Malaredi Hospital .
+spk_0: OK . Hospital Mco Hospital at the pricing 1500 per day .
+spk_1: Uh and then uh
+spk_0: Sorry .
+spk_1: 1500 madam I can talk for 3 to 5 days mameawali to buy personal I feel loan . OK
+spk_0: and um guarantee you check this one at least my uh one week because some provide this number we do pricing OK until I check and and check this on 1500
+spk_1: per day . 1000
+spk_0: rupees .
+spk_1: OK .
+        
+        Analysis:
+        --------------------------------
+        Call Type: Booking Services Inquiry
+        Sentiment: Neutral
+        Detected Emotions: Calmness
+        Sentiment Shifts: Customer started with neutral sentiment and remained neutral throughout the call
+        Speech-to-Silence Ratio: High speech to silence ratio indicating active engagement
+        Interruption Rate: Multiple instances of interruptions from both the agent and the customer
+        Hold Time Analysis: No hold time detected during the call
+        Customer Effort Score: Moderate - some confusion and back-and-forth discussion
+        Compliance Adherence: Agent seemed to follow guidelines in terms of providing information on services and pricing
+        Resolution Status: The call did not seem to resolve the customer's inquiry completely
+        Detected Issue: Customer inquiring about booking services, pricing, and duration of services
+        --------------------------------
+
+==============================
+        File: kaleyra_report/transcriptions/2025-03-03-2025-03-09/transcription-67cbb4ab-633c-482d-a355-02cbac110ff1-20250310182803.json
+        ==============================
+        Transcript:
+        spk_0: Good morning . Thank you for calling . This is .
+spk_1: How can I help ? Hi , good morning . We are calling from Hyderabad . We are looking for site . Is there any chance to getting a job in our , in our
+spk_0: services . May I know your , may I know your location ? I mean sorry , OK . May I know your qualification , please ?
+spk_1: BS .
+spk_0: OK , uh , may I know your good name ?
+spk_1: Sorry , may I ,
+spk_0: may I know your good name , please ?
+spk_1: So same name .
+spk_0: OK , so I'm going to forward your contact details . Uh , they'll get in touch with you . My consultant will get in touch with
+spk_1: you . OK , you can forward . If any chance I will looking .
+spk_0: Sure , sure . I they'll get in touch with you .
+spk_1: OK , please forward my number to them .
+spk_0: Sure , sure .
+spk_1: OK , thank you . Bye .
+        
+        Analysis:
+        --------------------------------
+        Call Type: Job Inquiry
+        Sentiment: Neutral
+        Detected Emotions: Neutral
+        Sentiment Shifts: Customer initially neutral, remained neutral throughout
+        Speech-to-Silence Ratio: High speech to silence ratio indicating engagement
+        Interruption Rate: No instances of interruption from either party
+        Hold Time Analysis: No hold time during the call
+        Customer Effort Score: Low customer effort, straightforward inquiry process
+        Compliance Adherence: Agent followed guidelines by collecting customer information
+        Resolution Status: Job inquiry was addressed, contact details forwarded for follow-up
+        Detected Issue: Customer looking for job opportunities
+        --------------------------------
+

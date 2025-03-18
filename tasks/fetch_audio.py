@@ -15,9 +15,9 @@ AWS_REGION = os.getenv("AWS_REGION")
 BUCKET_NAME = os.getenv("BUCKET_NAME")
 s3_client = boto3.client("s3", region_name=AWS_REGION)
 
-def generate_file_key(from_date: date, to_date: date, unique_id: str) -> str:
+def generate_file_key(from_date: date, to_date: date, unique_id: str, from_number: str) -> str:
     """Generates a unique S3 file key using an unique id."""
-    return f"kaleyra_report/call_recordings/{from_date}_To_{to_date}/{unique_id}.mp3"
+    return f"kaleyra_report/call_recordings/{from_date}_To_{to_date}/{from_number}_{unique_id}.mp3"
 
 def start_and_end_date()-> Dict[str, date]:
     utc_zone = pytz.utc
@@ -90,7 +90,7 @@ def fetch_audio_from_kaleyra_and_upload():
             fetch_audio = requests.get(fetch_audio_url)
 
             if fetch_audio.status_code == 200:
-                file_name = generate_file_key(from_date=from_and_to_date.get('from_date'), to_date=from_and_to_date.get('to_date'), unique_id=element.get('id'))
+                file_name = generate_file_key(from_date=from_and_to_date.get('from_date'), to_date=from_and_to_date.get('to_date'), unique_id=element.get('id'), from_number=str(element.get('callfrom')))
                 s3_client.put_object(Bucket=BUCKET_NAME, Key=file_name, Body=BytesIO(fetch_audio.content), ContentType='audio/mpeg')
                 element["file_name"] = file_name
                 save_list.append(element)
@@ -105,6 +105,6 @@ def fetch_audio_from_kaleyra_and_upload():
 
 
 if __name__ == "__main__":
-    pass
+    #pass
 
-    # fetch_audio_from_kaleyra_and_upload()
+    fetch_audio_from_kaleyra_and_upload()
