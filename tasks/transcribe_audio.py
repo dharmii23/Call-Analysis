@@ -96,7 +96,7 @@ def process_audio_files():
 
         # Ensure unique job name by appending a timestamp
         timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-        job_name = f"transcription-{unique_id}-{timestamp}"
+        job_name = f"{unique_id}-{timestamp}"
 
         transcription_data = transcribe_audio_with_aws(audio_s3_uri, job_name)
 

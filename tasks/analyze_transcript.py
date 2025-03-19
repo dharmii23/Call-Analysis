@@ -11,7 +11,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, 
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from collections import Counter
-
+import re
 # Load environment variables
 load_dotenv()
 
@@ -29,12 +29,18 @@ def start_and_end_date():
 # ✅ Function to extract only dialogues from JSON
 # ✅ Function to extract dialogues and duration
 # ✅ Function to extract dialogues and duration safely
+
+
 def extract_dialogues_and_duration(transcript_data):
+    job_name = transcript_data.get("jobName", "Unknown Job")  
+    first_id = re.match(r"^\d+", job_name)  # Extract only first numeric part
+    agent_number = first_id.group(0) if first_id else "Unknown"
+
     results = transcript_data.get("results", {})
     audio_segments = results.get("audio_segments", [])
 
     if not audio_segments:
-        return "No transcript available.", 0.0  # Return default if missing
+        return agent_number, "No transcript available.", 0.0
 
     dialogues = []
     total_duration = 0.0
@@ -43,20 +49,20 @@ def extract_dialogues_and_duration(transcript_data):
         speaker = segment.get("speaker_label", "Unknown Speaker")
         text = segment.get("transcript", "").strip()
 
-        # Convert start_time & end_time to float and calculate duration
         try:
             start_time = float(segment.get("start_time", "0.0"))
             end_time = float(segment.get("end_time", "0.0"))
             duration = round(end_time - start_time, 2)
-            total_duration += duration  # Sum up total call duration
+            total_duration += duration
         except ValueError:
             print(f"⚠ Error converting time values in segment: {segment}")
-            continue  # Skip if time values are invalid
+            continue
 
         if text:
             dialogues.append(f"{speaker}: {text} (Duration: {duration}s)")
 
-    return "\n".join(dialogues), round(total_duration, 2)
+    return agent_number, "\n".join(dialogues), round(total_duration, 2)
+
 
 
 
@@ -354,153 +360,118 @@ def extract_call_metrics(transcript_data):
     }
 
 
-def generate_weekly_content(transcripts, date_range):
-    total_calls = len(transcripts)
-    total_duration = sum(transcript["duration"] for transcript in transcripts.values())
-    average_duration = round(total_duration / total_calls, 2) if total_calls else 0
+def generate_weekly_content(transcripts_by_agent, date_range):
+    grouped_analysis = {}
 
-    sentiment_counts = Counter({"Positive": 0, "Neutral": 0, "Negative": 0})
+    for agent_number, transcripts in transcripts_by_agent.items():
+        total_calls = len(transcripts)
+        total_duration = sum(t["duration"] for t in transcripts)
+        average_duration = round(total_duration / total_calls, 2) if total_calls else 0
 
-    complaints_list = []
+        sentiment_counts = Counter({"Positive": 0, "Neutral": 0, "Negative": 0})
 
-    # ✅ Initialize Sentiment and Conversation Metrics
-    customer_sentiment = {
+        complaints_list = []
 
-        "Overall Sentiment Score": 0,
-        "Positive": 0,
-        "Neutral": 0,
-        "Negative": 0,
-    }
+        # ✅ Initialize Sentiment and Conversation Metrics
+        customer_sentiment = {
+            "Overall Sentiment Score": 0,
+            "Positive": 0,
+            "Neutral": 0,
+            "Negative": 0,
+        }
 
-    conversation_analysis = {
-        "Conversation Flow Score": 0,
-         "Question-to-Statement Ratio": 0,
-        "Resolution Path Efficiency": 0,
-    }
+        conversation_analysis = {
+            "Conversation Flow Score": 0,
+            "Question-to-Statement Ratio": 0,
+            "Resolution Path Efficiency": 0,
+        }
 
-    # ✅ Process each transcript
-    for file_key, transcript_text in transcripts.items():
+        # ✅ Process each transcript
+        for file_key, transcript_text in enumerate(transcripts):  # transcripts is a list now
+            dialogues = transcript_text["dialogues"]
+            duration = transcript_text["duration"]
 
-        dialogues = transcript_text["dialogues"]
-        duration = transcript_text["duration"]
+            ai_data = analyze_call_with_ai(dialogues)  # Keeping AI call as in your function
+            if ai_data:
+                sentiment = ai_data.get("Sentiment", "Neutral").capitalize()
+                if sentiment in sentiment_counts:
+                    sentiment_counts[sentiment] += 1
 
+                conversation_analysis["Conversation Flow Score"] += safe_float(ai_data.get("Conversation Flow Score", 0))
+                conversation_analysis["Question-to-Statement Ratio"] += safe_float(ai_data.get("Question-to-Statement Ratio", 0))
+                conversation_analysis["Resolution Path Efficiency"] += safe_float(ai_data.get("Resolution Path Efficiency", 0))
 
-        ai_data = analyze_call_with_ai(dialogues)
-        if ai_data:
-            sentiment = ai_data.get("Sentiment", "Neutral").capitalize()
-            if sentiment in sentiment_counts:
+            # ✅ Extract conversation & sentiment metrics from JSON
+            extracted_metrics = extract_call_metrics(transcript_text)
+
+            # 🔹 Send transcript to AI for sentiment classification
+            ai_prompt = f"""
+            Analyze the following customer service call and determine its overall sentiment:
+            - Options: "Positive", "Neutral", or "Negative"
+            - Consider customer tone, agent response, and resolution.
+
+            - Rate flow smoothness (1-100)
+            - Count question vs. statement ratio
+            - Detect key topics
+            - Identify resolution path efficiency
+
+            Transcript:
+            {dialogues}
+
+            Provide only one word as output: "Positive", "Neutral", or "Negative".
+
+            Also provide conversational: 
+            Provide output in JSON format:
+            {{
+                "Sentiment": "Positive | Neutral | Negative",
+                "Conversation Flow Score": (1-100),
+                "Question-to-Statement Ratio": (float),
+                "Resolution Path Efficiency": (1-100)
+            }}
+            """
+            response = llm.invoke(ai_prompt)
+
+            # ✅ Extract AI-assigned sentiment
+            try:
+                ai_data = json.loads(response.content.strip())  # ✅ Parse JSON string
+                sentiment = ai_data.get("Sentiment", "Neutral").capitalize()
+            except json.JSONDecodeError:
+                print(f"⚠ Error parsing AI response for {file_key}: {response.content.strip()}")
+                sentiment = "Neutral"
+                ai_data = {"conversation flow score": 50, "question-to-statement ratio": 0.5, "resolution path efficiency": 50}
+
+            if sentiment in ["Positive", "Neutral", "Negative"]:
                 sentiment_counts[sentiment] += 1
+            else:
+                print(f"⚠ Unexpected sentiment received: {sentiment} for {file_key}")
 
-            conversation_analysis["Conversation Flow Score"] += safe_float(ai_data.get("Conversation Flow Score", 0))
-            conversation_analysis["Question-to-Statement Ratio"] += safe_float(ai_data.get("Question-to-Statement Ratio", 0))
-            conversation_analysis["Resolution Path Efficiency"] += safe_float(ai_data.get("Resolution Path Efficiency", 0))
+        positive_calls = sentiment_counts["Positive"]
+        csat_score = round((positive_calls / total_calls) * 100, 2) if total_calls else 0
 
-        # ✅ Extract conversation & sentiment metrics from JSON
-        extracted_metrics = extract_call_metrics(transcript_text)
-        # 🔹 Send transcript to AI for sentiment classification
-        ai_prompt = f"""
-        Analyze the following customer service call and determine its overall sentiment:
-        - Options: "Positive", "Neutral", or "Negative"
-        - Consider customer tone, agent response, and resolution.
+        # ✅ NPS (Net Promoter Score)
+        promoters = sentiment_counts["Positive"]  # Assume promoters are positive sentiment calls
+        detractors = sentiment_counts["Negative"]  # Assume detractors are negative sentiment calls
+        nps_score = round(((promoters - detractors) / total_calls) * 100, 2) if total_calls else 0
 
-        - Rate flow smoothness (1-100)
-    - Count question vs. statement ratio
-    - Detect key topics
-    - Identify resolution path efficiency
+        agent_performance = {
+            "Total Calls Handled": total_calls,
+            "Average Call Duration": f"{average_duration} seconds",
+            "CSAT (Customer Satisfaction Score)": f"{csat_score}%",
+        }
 
-        Transcript:
-        {transcript_text}
+        conversation_analysis["Conversation Flow Score"] += safe_float(ai_data.get("Conversation Flow Score", 0))
+        conversation_analysis["Question-to-Statement Ratio"] += safe_float(ai_data.get("Question-to-Statement Ratio", 0))
+        conversation_analysis["Resolution Path Efficiency"] += safe_float(ai_data.get("Resolution Path Efficiency", 0))
 
-        Provide only one word as output: "Positive", "Neutral", or "Negative".
+        # ✅ Store analysis under the agent number
+        grouped_analysis[agent_number] = {
+            "Agent Performance": agent_performance,
+            "Sentiment Breakdown": sentiment_counts,
+            "Conversation Analysis": conversation_analysis
+        }
 
-        Also provide conversational: 
-        Provide output in JSON format:
-        {{
-            "Sentiment": "Positive | Neutral | Negative",
-            "Conversation Flow Score": (1-100),
-            "Question-to-Statement Ratio": (float),
-            "Resolution Path Efficiency": (1-100)
-        }}
-        """
-        response = llm.invoke(ai_prompt)
+    return grouped_analysis
 
-        # ✅ Extract AI-assigned sentiment
-        try:
-            ai_data = json.loads(response.content.strip())  # ✅ Parse JSON string
-            sentiment = ai_data.get("sentiment", "Neutral").capitalize()
-        except json.JSONDecodeError:
-            print(f"⚠ Error parsing AI response for {file_key}: {response.content.strip()}")
-            sentiment = "Neutral"
-            ai_data = {"conversation flow score": 50, "question-to-statement ratio": 0.5, "resolution path efficiency": 50}
-
-        if sentiment in ["Positive", "Neutral", "Negative"]:
-            sentiment_counts[sentiment] += 1
-        else:
-            print(f"⚠ Unexpected sentiment received: {sentiment} for {file_key}")
-    
-
-    positive_calls = sentiment_counts["Positive"]
-    csat_score = round((positive_calls / total_calls) * 100, 2) if total_calls else 0
-
-    # ✅ NPS (Net Promoter Score)
-    promoters = sentiment_counts["Positive"]  # Assume promoters are positive sentiment calls
-    detractors = sentiment_counts["Negative"]  # Assume detractors are negative sentiment calls
-    nps_score = round(((promoters - detractors) / total_calls) * 100, 2) if total_calls else 0
-
-    agent_performance = {
-        "Total Calls Handled": total_calls,
-        "Average Call Duration": f"{average_duration} seconds",
-        "CSAT (Customer Satisfaction Score)": f"{csat_score}%",
-    }
-
-    conversation_analysis["Conversation Flow Score"] += safe_float(ai_data.get("Conversation Flow Score", 0))
-    conversation_analysis["Question-to-Statement Ratio"] += safe_float(ai_data.get("Question-to-Statement Ratio", 0))
-    conversation_analysis["Resolution Path Efficiency"] += safe_float(ai_data.get("Resolution Path Efficiency", 0))
-
-        # ✅ Store JSON-extracted conversation analysis
-    # conversation_analysis["Speech-to-Silence Ratio"] += extracted_metrics["Speech-to-Silence Ratio"]
-    # conversation_analysis["Interruption Rate"] += extracted_metrics["Interruption Rate"]
-    # conversation_analysis["Hold Time Analysis"] += extracted_metrics["Hold Time Analysis"]
-
-    # customer_sentiment["Escalation Risk Score"] += extracted_metrics.get("Escalation Risk Score", 0)
-
-    # customer_sentiment["Frustration Score"] += extracted_metrics.get("Frustration score", 0)
-
-
-    # ✅ Compute Majority Sentiment
-    total_sentiments = sum(sentiment_counts.values())
-    if total_sentiments > 0:
-        for sentiment in sentiment_counts:
-            customer_sentiment["Positive"] = round((sentiment_counts["Positive"] / total_sentiments) * 100, 2)
-            customer_sentiment["Neutral"] = round((sentiment_counts["Neutral"] / total_sentiments) * 100, 2)
-            customer_sentiment["Negative"] = round((sentiment_counts["Negative"] / total_sentiments) * 100, 2)
-
-            customer_sentiment["Overall Sentiment Score"] = round(
-    (customer_sentiment["Positive"] + customer_sentiment["Neutral"] + customer_sentiment["Negative"]) / 3, 2
-)
-    # ✅ Generate Weekly Summary Using GPT
-    weekly_summary_prompt = f"""
-    Generate a professional weekly call analysis based on the following data:
-
-    - Total Calls: {total_calls}
-    - Sentiment Breakdown:
-      - Overall Sentiment Score: {customer_sentiment["Overall Sentiment Score"]}%
-
-      - Positive: {customer_sentiment["Positive"]}%
-- Neutral: {customer_sentiment["Neutral"]}%
-- Negative: {customer_sentiment["Negative"]}%
-
-
-    Summarize trends and overall customer sentiment.
-    """
-    weekly_summary_response = llm.invoke(weekly_summary_prompt)
-
-    print(f"📝 AI Sentiment Response for {file_key}: {response.content.strip()}") 
-    weekly_summary_paragraph = weekly_summary_response.content.strip()
-
-    return weekly_summary_paragraph, agent_performance, customer_sentiment, conversation_analysis, date_range
-
-    # ✅ Agent Performance Metrics
     
 
 # ✅ AWS S3 Client
@@ -550,10 +521,10 @@ def fetch_transcripts():
     date = start_and_end_date()
     transcript_prefix = f"{TRANSCRIPTS_FOLDER}/{date['from_date']}-{date['to_date']}"
     response = s3_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=transcript_prefix)
-    transcript_texts = {}
+    transcripts_by_agent = {}
 
     if "Contents" not in response:
-        return transcript_texts
+        return transcripts_by_agent
 
     for obj in response["Contents"]:
         file_key = obj["Key"]
@@ -565,38 +536,89 @@ def fetch_transcripts():
 
         try:
             transcript_data = json.loads(file_content)
-            dialogues, duration = extract_dialogues_and_duration(transcript_data)
+            agent_number, dialogues, duration = extract_dialogues_and_duration(transcript_data)
 
-            # Debugging logs
-            print(f"✅ Processed transcript: {file_key}")
-            print(f"🗣 Dialogues (First 500 chars): {dialogues[:500]}")
-            print(f"⏳ Call Duration: {duration} seconds")
+            print(f"✅ Processed transcript for Agent {agent_number}")
 
-            transcript_texts[file_key] = {"dialogues": dialogues, "duration": duration}
+            if agent_number not in transcripts_by_agent:
+                transcripts_by_agent[agent_number] = []
+
+            transcripts_by_agent[agent_number].append({"dialogues": dialogues, "duration": duration})
+
         except json.JSONDecodeError:
             print(f"❌ Error parsing JSON file: {file_key}")
             continue
 
-    return transcript_texts
+    return transcripts_by_agent
+
+def save_grouped_pdf(grouped_analysis, filename):
+    doc = SimpleDocTemplate(filename, pagesize=letter, leftMargin=72, rightMargin=72, topMargin=72, bottomMargin=72)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    for agent_number, data in grouped_analysis.items():
+        elements.append(Paragraph(f"📌 Agent Number: {agent_number}", styles["Heading2"]))
+        elements.append(Spacer(1, 12))
+
+        elements.append(Paragraph("🔹 Agent Performance", styles["Heading3"]))
+        agent_table_data = [["Metric", "Value"]] + [[k, str(v)] for k, v in data.get("Agent Performance", {}).items()]
+        table = Table(agent_table_data, colWidths=[250, 150])
+        table.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ]))
+        elements.append(table)
+        elements.append(Spacer(1, 20))
+
+        # ✅ Fix: Ensure "Sentiment Counts" key exists before using it
+        if "Sentiment Breakdown" in data:
+            elements.append(Paragraph("🔹 Sentiment Analysis", styles["Heading3"]))
+            sentiment_table_data = [["Sentiment", "Count"]] + [[k, str(v)] for k, v in data["Sentiment Breakdown"].items()]
+            table = Table(sentiment_table_data, colWidths=[250, 150])
+            table.setStyle(TableStyle([
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ]))
+            elements.append(table)
+            elements.append(Spacer(1, 20))
+        else:
+            print(f"⚠ Warning: 'Sentiment Breakdown' missing for Agent {agent_number}")
+
+        # ✅ Fix: Ensure "Conversation Analysis" exists before using it
+        if "Conversation Analysis" in data:
+            elements.append(Paragraph("🔹 Conversation Analysis", styles["Heading3"]))
+            conversation_table_data = [["Metric", "Value"]] + [[k, str(v)] for k, v in data["Conversation Analysis"].items()]
+            table = Table(conversation_table_data, colWidths=[250, 150])
+            table.setStyle(TableStyle([
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ]))
+            elements.append(table)
+            elements.append(Spacer(1, 20))
+        else:
+            print(f"⚠ Warning: 'Conversation Analysis' missing for Agent {agent_number}")
+
+    doc.build(elements)
+
 
 # ✅ Analyze and store results
 def analyze_and_store():
-    transcripts = fetch_transcripts()
-    if not transcripts:
+    transcripts_by_agent = fetch_transcripts()
+    if not transcripts_by_agent:
         print("No transcripts found.")
         return
 
     date_range = start_and_end_date()
-    analysis_filename = f"weekly_report_{date_range['from_date']}to{date_range['to_date']}.pdf"
-    s3_analysis_path = f"keywords-bucket/{analysis_filename}"
+    grouped_analysis = generate_weekly_content(transcripts_by_agent, date_range)
 
-    # ✅ Generate Weekly Summary & Metrics
-    weekly_summary_paragraph, agent_performance, customer_sentiment, conversation_analysis, date_range = generate_weekly_content(transcripts, date_range)
+    filename = f"weekly_report_{date_range['from_date']}to{date_range['to_date']}.pdf"
+    save_grouped_pdf(grouped_analysis, filename)
+    s3_client.upload_file(filename, "keywords-bucket", filename)
+    print(f"✅ Successfully uploaded weekly report: s3://keywords-bucket/{filename}")
 
-    # ✅ Save Weekly Summary PDF
-    save_weekly_pdf(weekly_summary_paragraph, agent_performance, customer_sentiment, conversation_analysis, "analysis_results.pdf")
-    s3_client.upload_file("analysis_results.pdf", "keywords-bucket", analysis_filename)
-    print(f"✅ Successfully uploaded weekly report to S3: s3://{s3_analysis_path}")
 
 if __name__ == "__main__":
     analyze_and_store()
