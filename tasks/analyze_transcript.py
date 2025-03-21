@@ -26,9 +26,6 @@ def start_and_end_date():
     to_date = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
     return {'from_date': from_date, 'to_date': to_date}
 
-# ✅ Function to extract only dialogues from JSON
-# ✅ Function to extract dialogues and duration
-# ✅ Function to extract dialogues and duration safely
 
 
 def extract_dialogues_and_duration(transcript_data):
@@ -551,7 +548,7 @@ def fetch_transcripts():
 
     return transcripts_by_agent
 
-def save_grouped_pdf(grouped_analysis, filename):
+def save_grouped_pdf(grouped_analysis, transcripts_by_agent, filename):
     doc = SimpleDocTemplate(filename, pagesize=letter, leftMargin=72, rightMargin=72, topMargin=72, bottomMargin=72)
     styles = getSampleStyleSheet()
     elements = []
@@ -571,7 +568,7 @@ def save_grouped_pdf(grouped_analysis, filename):
         elements.append(table)
         elements.append(Spacer(1, 20))
 
-        # ✅ Fix: Ensure "Sentiment Counts" key exists before using it
+        # ✅ Sentiment Analysis
         if "Sentiment Breakdown" in data:
             elements.append(Paragraph("🔹 Sentiment Analysis", styles["Heading3"]))
             sentiment_table_data = [["Sentiment", "Count"]] + [[k, str(v)] for k, v in data["Sentiment Breakdown"].items()]
@@ -586,7 +583,7 @@ def save_grouped_pdf(grouped_analysis, filename):
         else:
             print(f"⚠ Warning: 'Sentiment Breakdown' missing for Agent {agent_number}")
 
-        # ✅ Fix: Ensure "Conversation Analysis" exists before using it
+        # ✅ Conversation Analysis
         if "Conversation Analysis" in data:
             elements.append(Paragraph("🔹 Conversation Analysis", styles["Heading3"]))
             conversation_table_data = [["Metric", "Value"]] + [[k, str(v)] for k, v in data["Conversation Analysis"].items()]
@@ -600,6 +597,34 @@ def save_grouped_pdf(grouped_analysis, filename):
             elements.append(Spacer(1, 20))
         else:
             print(f"⚠ Warning: 'Conversation Analysis' missing for Agent {agent_number}")
+
+        # ✅ Per-Call Analysis
+        if agent_number in transcripts_by_agent:
+            elements.append(Paragraph("📞 Per-Call Analysis", styles["Heading3"]))
+            for idx, transcript in enumerate(transcripts_by_agent[agent_number]):
+                dialogues = transcript["dialogues"]
+                duration = transcript["duration"]
+
+                # Call-Level AI Analysis
+                ai_data = analyze_call_with_ai(dialogues)
+
+                elements.append(Paragraph(f"🗣 Call {idx + 1} (Duration: {duration} seconds)", styles["Heading4"]))
+                elements.append(Paragraph(dialogues[:1000].replace("\n", "<br/>"), styles["BodyText"]))  # Truncated for readability
+                elements.append(Spacer(1, 10))
+
+                # Call Metrics Table
+                if ai_data:
+                    call_table_data = [["Metric", "Value"]] + [[k, str(v)] for k, v in ai_data.items()]
+                    table = Table(call_table_data, colWidths=[250, 150])
+                    table.setStyle(TableStyle([
+                        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                    ]))
+                    elements.append(table)
+                    elements.append(Spacer(1, 20))
+
+                elements.append(PageBreak())  # Page break after each call
 
     doc.build(elements)
 
@@ -615,7 +640,7 @@ def analyze_and_store():
     grouped_analysis = generate_weekly_content(transcripts_by_agent, date_range)
 
     filename = f"weekly_report_{date_range['from_date']}to{date_range['to_date']}.pdf"
-    save_grouped_pdf(grouped_analysis, filename)
+    save_grouped_pdf(grouped_analysis, transcripts_by_agent, filename)
     s3_client.upload_file(filename, "keywords-bucket", filename)
     print(f"✅ Successfully uploaded weekly report: s3://keywords-bucket/{filename}")
 
